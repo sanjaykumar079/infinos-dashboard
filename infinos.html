@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#060709">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>INFINOS — Smart Bag Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="infinos.css">
+</head>
+<body>
+
+<!-- ── TOP NAVBAR ── -->
+<nav>
+  <div class="nav-brand">
+    <div class="nav-logo">
+      <img src="logo.jpg" alt="INFINOS logo">
+    </div>
+    INFINOS
+  </div>
+
+  <div class="nav-links">
+    <button class="nav-link active" onclick="showPage('dashboard', this)">Dashboard</button>
+    <button class="nav-link" onclick="showPage('devices', this)">Devices</button>
+    <button class="nav-link" onclick="showPage('analytics', this)">Analytics</button>
+  </div>
+
+  <div class="nav-right">
+    <div class="live-badge" id="liveIndicator">LIVE</div>
+    <button class="btn-theme" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle light/dark mode">
+      <!-- Moon: shown in dark mode -->
+      <svg class="icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+      <!-- Sun: shown in light mode -->
+      <svg class="icon-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>
+    </button>
+    <button class="btn-claim" onclick="openClaimModal()">+ Claim Bag</button>
+  </div>
+</nav>
+
+<!-- ── MAIN ── -->
+<main>
+
+  <!-- Page Header -->
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Smart Bag Dashboard</h1>
+      <p class="page-sub">Real-time temperature monitoring for your delivery bags</p>
+    </div>
+    <button class="refresh-btn" onclick="refreshAll()">
+      <svg id="refreshIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 4v6h6M23 20v-6h-6"/>
+        <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+      </svg>
+      <span>Refresh</span>
+    </button>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:rgba(255,107,53,.09)">📦</div>
+      <div class="stat-label">Total Bags</div>
+      <div class="stat-value" id="statTotal">0</div>
+      <div class="stat-desc">Registered</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon" style="background:rgba(52,211,153,.09)">🟢</div>
+      <div class="stat-label">Online</div>
+      <div class="stat-value" id="statOnline" style="color:var(--green)">0</div>
+      <div class="stat-desc">Active now</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon" style="background:rgba(255,107,53,.09)">🔥</div>
+      <div class="stat-label">Avg Hot Temp</div>
+      <div class="stat-value" id="statHot" style="color:var(--hot)">—</div>
+      <div class="stat-desc">°C all bags</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon" style="background:rgba(56,189,248,.09)">❄️</div>
+      <div class="stat-label">Avg Cold Temp</div>
+      <div class="stat-value" id="statCold" style="color:var(--cold)">—</div>
+      <div class="stat-desc">°C all bags</div>
+    </div>
+  </div>
+
+  <!-- Devices -->
+  <div class="section-title"><i></i>Your Bags</div>
+  <div class="devices-grid" id="devicesGrid">
+    <div style="grid-column:1/-1;text-align:center;padding:48px 20px;color:var(--muted)">
+      <div style="font-size:38px;margin-bottom:12px;opacity:.22">📦</div>
+      <div style="font-family:'Syne',sans-serif;font-size:0.9rem;font-weight:700;margin-bottom:5px">No bags claimed yet</div>
+      <div style="font-size:0.75rem">Tap <strong style="color:var(--orange)">+ Claim Bag</strong> to get started</div>
+    </div>
+  </div>
+
+  <!-- Monitor -->
+  <div class="section-title"><i></i>Live Monitor</div>
+  <div class="monitor-panel">
+    <div id="monitorContent">
+      <div class="empty-monitor">
+        <div class="empty-icon">📡</div>
+        <div class="empty-title">Select a bag to monitor</div>
+        <div class="empty-desc">Tap any bag card above to view real-time temperature readings and history charts.</div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ── MOBILE BOTTOM NAV ── -->
+<nav class="mobile-nav" aria-label="Mobile navigation">
+  <div class="mobile-nav-inner">
+    <button class="mob-nav-btn active" onclick="showPage('dashboard', this)">
+      <span class="mob-icon">📊</span>
+      <span class="mob-label">Dashboard</span>
+    </button>
+    <button class="mob-nav-btn" onclick="showPage('devices', this)">
+      <span class="mob-icon">📦</span>
+      <span class="mob-label">Devices</span>
+    </button>
+    <button class="mob-nav-btn" onclick="openClaimModal()">
+      <span class="mob-icon" style="font-size:22px;color:var(--orange)">＋</span>
+      <span class="mob-label" style="color:var(--orange)">Claim</span>
+    </button>
+    <button class="mob-nav-btn" onclick="showPage('analytics', this)">
+      <span class="mob-icon">📈</span>
+      <span class="mob-label">Analytics</span>
+    </button>
+    <button class="mob-nav-btn" onclick="toggleTheme()">
+      <span class="mob-icon mob-theme-moon">🌙</span>
+      <span class="mob-icon mob-theme-sun" style="display:none">☀️</span>
+      <span class="mob-label">Theme</span>
+    </button>
+  </div>
+</nav>
+
+<!-- ── CLAIM MODAL ── -->
+<div class="modal-overlay" id="claimModal" onclick="handleOverlayClick(event)">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="modalTitle">Claim Delivery Bag</div>
+        <div class="modal-sub">Connect your bag to the dashboard</div>
+      </div>
+      <button class="modal-close" onclick="closeClaimModal()" aria-label="Close">×</button>
+    </div>
+
+    <div class="modal-body">
+      <!-- Steps -->
+      <div class="steps" id="modalSteps">
+        <div class="step">
+          <div class="step-dot active" id="step1dot">1</div>
+          <div class="step-label">Enter Code</div>
+        </div>
+        <div class="step-line" id="stepLine"></div>
+        <div class="step">
+          <div class="step-dot" id="step2dot">2</div>
+          <div class="step-label">Name Bag</div>
+        </div>
+      </div>
+
+      <div id="errorBox" class="error-msg" role="alert"></div>
+
+      <!-- Step 1 -->
+      <div id="step1Content">
+        <div class="field-label">Device Code</div>
+        <input class="field-input" id="deviceCodeInput"
+          placeholder="e.g. INF-XXXX-XXXX"
+          style="font-family:monospace;letter-spacing:2px;font-size:0.9rem;text-transform:uppercase"
+          maxlength="20" oninput="this.value=this.value.toUpperCase()"
+          autocomplete="off" autocorrect="off" spellcheck="false">
+        <div class="field-hint">Enter any code — demo connects to ThingSpeak channel 3297681</div>
+        <div class="info-box">
+          <strong>📡 Live Data Source</strong><br>
+          ThingSpeak Channel 3297681<br>
+          Field 3 = Hot Zone Temp &nbsp;·&nbsp; Field 4 = Cold Zone Humidity
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div id="step2Content" style="display:none">
+        <div id="verifyCard" class="verify-card">
+          <div class="verify-icon">✅</div>
+          <div>
+            <div class="verify-title">Device Verified!</div>
+            <div class="verify-sub" id="verifyInfo">Connected to ThingSpeak Channel 3297681</div>
+          </div>
+        </div>
+        <div class="field-label">Bag Name</div>
+        <input class="field-input" id="bagNameInput"
+          placeholder="e.g. Hot Bag Zone A, Cold Delivery #1"
+          autocomplete="off">
+        <div class="field-hint">Names with "hot" or "cold" get auto-coloured</div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-cancel" id="backBtn" onclick="modalBack()">Cancel</button>
+      <button class="btn-primary" id="nextBtn" onclick="modalNext()">Continue →</button>
+    </div>
+
+  </div>
+</div>
+
+<script src="infinos.js" defer></script>
+</body>
+</html>
