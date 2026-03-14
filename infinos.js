@@ -23,9 +23,8 @@ async function fetchThingSpeak(count = 20) {
 function parseFeeds(feeds) {
   return feeds.map(f => ({
     timestamp:   new Date(f.created_at),
-    hotTemp:     parseFloat(f.field3) ?? null,  // field3 = Hot Zone Temp (°C)
-    coldTemp:    parseFloat(f.field1) ?? null,  // field1 = Cold Zone Temp (°C)
-    humidity:    parseFloat(f.field4) ?? null,  // field4 = Humidity (%)
+    hotTemp:     parseFloat(f.field1) ?? null,  // field1 = Hot Zone Temp (°C)
+    coldTemp:    parseFloat(f.field3) ?? null,  // field3 = Cold Zone Temp (°C)
   }));
 }
 
@@ -171,10 +170,7 @@ function renderMonitor(bag) {
         <div class="mp-title">🔴 Live: ${bag.name}</div>
         <div class="mp-meta">Code: ${bag.code} · Channel ${CHANNEL_ID} · Auto-refresh every 15s</div>
       </div>
-      <div class="mp-actions">
-        <div class="live-badge">LIVE</div>
-        <button class="btn-export" onclick="exportBagPdf()">Download PDF</button>
-      </div>
+      <div class="live-badge">LIVE</div>
     </div>
     <div class="mp-body">
       <div class="timestamp-bar">
@@ -186,12 +182,12 @@ function renderMonitor(bag) {
         <div class="rb-card hot">
           <div class="rb-label">🔥 Hot Zone Temp</div>
           <div class="rb-value" id="liveHot">${hotVal}</div>
-          <div class="rb-sub">field3 · ThingSpeak</div>
+          <div class="rb-sub">field1 · ThingSpeak</div>
         </div>
         <div class="rb-card cold">
           <div class="rb-label">❄️ Cold Zone Temp</div>
           <div class="rb-value" id="liveCold">${coldVal}</div>
-          <div class="rb-sub">field1 · ThingSpeak</div>
+          <div class="rb-sub">field3 · ThingSpeak</div>
         </div>
       </div>
 
@@ -271,71 +267,6 @@ function renderMonitor(bag) {
         pointBackgroundColor:'rgb(56,189,248)', borderWidth:1.8, spanGaps:true }]
     }, options: baseOptions('°C')
   });
-}
-
-function exportBagPdf() {
-  const bag = bags.find(b => b.id === activeBagId);
-  if (!bag || !bag.history || !bag.history.length) {
-    alert('No readings available to export yet.');
-    return;
-  }
-
-  if (!window.jspdf || !window.jspdf.jsPDF) {
-    alert('PDF library failed to load. Please check your internet connection and try again.');
-    return;
-  }
-
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-
-  const history = bag.history;
-  const title = 'Temperature Readings';
-  const subtitle = `Bag: ${bag.name}  |  Code: ${bag.code || '-'}`;
-  const generated = `Generated: ${new Date().toLocaleString()}`;
-
-  let y = 15;
-  doc.setFontSize(16);
-  doc.text(title, 14, y);
-  y += 7;
-
-  doc.setFontSize(10);
-  doc.text(subtitle, 14, y);
-  y += 5;
-  doc.text(generated, 14, y);
-  y += 8;
-
-  // table header
-  doc.setFontSize(10);
-  doc.setFont(undefined, 'bold');
-  doc.text('#', 14, y);
-  doc.text('Time', 24, y);
-  doc.text('Hot (°C)', 100, y);
-  doc.text('Cold (°C)', 140, y);
-  doc.setFont(undefined, 'normal');
-  y += 5;
-
-  const lineHeight = 5;
-  const bottomMargin = 280;
-
-  history.forEach((h, idx) => {
-    const d = h.timestamp instanceof Date ? h.timestamp : new Date(h.timestamp);
-    const hot = h.hotTemp != null ? h.hotTemp.toFixed(2) : '—';
-    const cold = h.coldTemp != null ? h.coldTemp.toFixed(2) : '—';
-
-    if (y > bottomMargin) {
-      doc.addPage();
-      y = 20;
-    }
-
-    doc.text(String(idx + 1), 14, y);
-    doc.text(d.toLocaleString(), 24, y);
-    doc.text(String(hot), 100, y);
-    doc.text(String(cold), 140, y);
-    y += lineHeight;
-  });
-
-  const fileName = `infinos-readings-${bag.name.replace(/\s+/g, '_')}.pdf`;
-  doc.save(fileName);
 }
 
 async function updateBagData(bagId) {
@@ -538,7 +469,6 @@ async function init() {
           timestamp: new Date(h.timestamp),
           hotTemp:  h.temperature ?? null,
           coldTemp: null,
-          humidity: h.humidity   ?? null,
         }));
         migrated = true;
       } else if ('hotHumidity' in sample) {
@@ -547,7 +477,6 @@ async function init() {
           timestamp: new Date(h.timestamp),
           hotTemp:  h.hotTemp  ?? null,
           coldTemp: h.coldTemp ?? null,
-          humidity: h.hotHumidity ?? null,
         }));
         migrated = true;
       }

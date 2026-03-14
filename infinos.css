@@ -797,9 +797,6 @@ html.light .stat-card,
 html.light .chart-card {
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
-html.light .humidity-strip {
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-}
 html.light .timestamp-bar {
   border: 1px solid var(--border);
 }
