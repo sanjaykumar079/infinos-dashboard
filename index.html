@@ -210,6 +210,60 @@
   </div>
 </div>
 
+<!-- ── DATE RANGE EXPORT MODAL ── -->
+<div class="modal-overlay" id="dateRangeModal" onclick="if(event.target===this)closeDateRangeModal()">
+  <div class="modal" role="dialog" aria-modal="true">
+
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">&#128197; Download Readings</div>
+        <div class="modal-sub">Select a date &amp; time range to export</div>
+      </div>
+      <button class="modal-close" onclick="closeDateRangeModal()" aria-label="Close">&#215;</button>
+    </div>
+
+    <div class="modal-body">
+
+      <!-- Quick presets -->
+      <div class="dr-presets">
+        <button class="dr-preset-btn" onclick="drPreset(1)">Today</button>
+        <button class="dr-preset-btn" onclick="drPreset(7)">Last 7 days</button>
+        <button class="dr-preset-btn" onclick="drPreset(30)">Last 30 days</button>
+        <button class="dr-preset-btn" onclick="drPresetAll()">All time</button>
+      </div>
+
+      <!-- Date inputs -->
+      <div class="dr-row">
+        <div class="dr-field">
+          <div class="field-label">From</div>
+          <input type="datetime-local" class="field-input" id="drFrom">
+        </div>
+        <div class="dr-field">
+          <div class="field-label">To</div>
+          <input type="datetime-local" class="field-input" id="drTo">
+        </div>
+      </div>
+
+      <div class="dr-note" id="drMinNote"></div>
+      <div class="error-msg" id="drError" style="display:none"></div>
+
+      <!-- Format buttons -->
+      <div class="dr-format-label">Export format</div>
+      <div class="dr-format-row">
+        <button class="dr-format-btn" onclick="drDownload('pdf')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          Download PDF
+        </button>
+        <button class="dr-format-btn excel" onclick="drDownload('excel')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>
+          Download Excel
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>

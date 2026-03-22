@@ -857,3 +857,115 @@ html.light .chart-card {
 html.light .timestamp-bar {
   border: 1px solid var(--border);
 }
+/* ─────────────────────────────
+   FETCH-ALL PROGRESS OVERLAY
+───────────────────────────── */
+#fetchOverlay {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,0.78);
+  backdrop-filter: blur(10px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  opacity: 0; transition: opacity .25s;
+}
+#fetchOverlay.open { opacity: 1; }
+
+.fetch-modal {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 32px 28px;
+  width: 100%; max-width: 360px;
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+}
+.fetch-icon { font-size: 36px; margin-bottom: 12px; animation: fetchPulse 1.2s ease-in-out infinite; }
+@keyframes fetchPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.15)} }
+
+.fetch-title {
+  font-family: 'Syne', sans-serif;
+  font-weight: 700; font-size: 1rem;
+  margin-bottom: 6px;
+}
+.fetch-sub { font-size: 0.75rem; color: var(--muted); margin-bottom: 16px; min-height: 18px; }
+
+.fetch-bar-wrap {
+  height: 6px; background: var(--surface3);
+  border-radius: 999px; overflow: hidden; margin-bottom: 10px;
+}
+.fetch-bar {
+  height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--orange), #ff3d00);
+  transition: width .3s ease-out;
+}
+.fetch-count { font-size: 0.7rem; color: var(--muted); font-family: monospace; }
+
+/* ─────────────────────────────
+   DATE RANGE EXPORT MODAL
+───────────────────────────── */
+.dr-presets {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 18px;
+}
+.dr-preset-btn {
+  padding: 5px 12px; border-radius: 999px;
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--muted); font-family: 'DM Sans', sans-serif;
+  font-size: 0.72rem; font-weight: 600;
+  cursor: pointer; transition: all .15s;
+}
+.dr-preset-btn:hover {
+  background: var(--orange-dim); border-color: var(--orange);
+  color: var(--orange);
+}
+
+.dr-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  margin-bottom: 10px;
+}
+.dr-field {}
+
+.dr-note {
+  font-size: 0.68rem; color: var(--muted);
+  margin-bottom: 16px; min-height: 16px;
+}
+
+.dr-format-label {
+  font-size: 0.65rem; font-weight: 600;
+  color: var(--muted); text-transform: uppercase;
+  letter-spacing: .08em; margin-bottom: 8px;
+}
+
+.dr-format-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+
+.dr-format-btn {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 11px 10px; border-radius: 10px;
+  background: linear-gradient(135deg, var(--orange), #e83800);
+  border: none; color: #fff;
+  font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 0.8rem;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(255,107,53,.3);
+  transition: transform .15s, box-shadow .15s;
+}
+.dr-format-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255,107,53,.45); }
+.dr-format-btn.excel {
+  background: linear-gradient(135deg, #16a34a, #0f7a33);
+  box-shadow: 0 4px 14px rgba(22,163,74,.3);
+}
+.dr-format-btn.excel:hover { box-shadow: 0 6px 20px rgba(22,163,74,.45); }
+
+/* native datetime-local tweak for dark mode */
+input[type="datetime-local"] {
+  color-scheme: dark;
+}
+html.light input[type="datetime-local"] {
+  color-scheme: light;
+}
+
+@media (max-width: 480px) {
+  .dr-row { grid-template-columns: 1fr; }
+  .dr-format-row { grid-template-columns: 1fr; }
+}

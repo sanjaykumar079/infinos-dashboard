@@ -13,19 +13,107 @@ const API_KEY = 'C8DUVRKN6XZTK1A2';
 // ───────────────────────────────────────────────
 // THINGSPEAK FETCH
 // ───────────────────────────────────────────────
-async function fetchThingSpeak(count = 20) {
+
+// Fetch latest N readings (for live updates — keep fast)
+async function fetchThingSpeak(count = 100) {
   const url = `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json?api_key=${API_KEY}&results=${count}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('ThingSpeak unreachable');
   return res.json();
 }
 
+// Fetch ALL readings from ThingSpeak.
+// Strategy: ThingSpeak's `results` param maxes at 8000.
+// We page backwards in time using `end=<ISO datetime>` — each page
+// fetches the 8000 entries BEFORE that timestamp, until we get < 8000
+// back (meaning we've hit the beginning).
+async function fetchAllThingSpeak(onProgress) {
+  const PAGE = 8000;
+  let allFeeds = [];
+  let endTime = null; // null = start from now, then walk backwards
+
+  // Get total count so we can show a progress bar
+  let totalEntries = 0;
+  try {
+    const infoRes = await fetch(
+      `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json?api_key=${API_KEY}&results=1`
+    );
+    if (infoRes.ok) {
+      const info = await infoRes.json();
+      totalEntries = info.channel?.last_entry_id || 0;
+    }
+  } catch(e) {}
+
+  if (onProgress) onProgress(0, totalEntries);
+
+  let page = 0;
+  while (true) {
+    page++;
+    let url = `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json?api_key=${API_KEY}&results=${PAGE}&timezone=UTC`;
+    if (endTime) url += `&end=${encodeURIComponent(endTime)}`;
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`ThingSpeak error: ${res.status}`);
+    const data = await res.json();
+    const feeds = data.feeds || [];
+
+    if (!feeds.length) break; // no more data
+
+    // Prepend (we're going backwards — oldest page last)
+    allFeeds = feeds.concat(allFeeds);
+
+    if (onProgress) onProgress(allFeeds.length, totalEntries);
+
+    // If we got fewer than PAGE results, we've reached the beginning
+    if (feeds.length < PAGE) break;
+
+    // Set end to just before the earliest entry in this page
+    const earliest = new Date(feeds[0].created_at);
+    earliest.setSeconds(earliest.getSeconds() - 1);
+    endTime = earliest.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+
+    // ThingSpeak rate limit: 1 req / ~1s on free tier
+    await new Promise(r => setTimeout(r, 1100));
+  }
+
+  // Final deduplicate by entry_id (pages can slightly overlap)
+  const seen = new Set();
+  const unique = [];
+  for (const f of allFeeds) {
+    if (!seen.has(f.entry_id)) { seen.add(f.entry_id); unique.push(f); }
+  }
+  unique.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  return unique;
+}
+
 function parseFeeds(feeds) {
-  return feeds.map(f => ({
-    timestamp:   new Date(f.created_at),
-    hotTemp:     parseFloat(f.field1) ?? null,  // field1 = Hot Zone Temp (°C)
-    coldTemp:    parseFloat(f.field3) ?? null,  // field3 = Cold Zone Temp (°C)
-  }));
+  return feeds.map(f => {
+    const hot  = parseFloat(f.field1);
+    const cold = parseFloat(f.field3);
+    return {
+      entry_id:  f.entry_id,
+      timestamp: new Date(f.created_at),
+      hotTemp:   isNaN(hot)  ? null : hot,
+      coldTemp:  isNaN(cold) ? null : cold,
+    };
+  });
+  // Note: we keep ALL rows including 0.0 — only skip if field is literally missing
+}
+
+// Merge new readings into existing history — deduplicate by entry_id
+function mergeHistory(existing, incoming) {
+  const seen = new Set(existing.map(r => r.entry_id));
+  const merged = [...existing];
+  for (const r of incoming) {
+    if (!seen.has(r.entry_id)) {
+      merged.push(r);
+      seen.add(r.entry_id);
+    }
+  }
+  // Sort by timestamp ascending
+  merged.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  return merged;
 }
 
 // ───────────────────────────────────────────────
@@ -36,7 +124,7 @@ function saveBags() {
 }
 
 function deleteBag(e, bagId) {
-  e.stopPropagation(); // don't trigger selectBag
+  e.stopPropagation();
   const bag = bags.find(b => b.id === bagId);
   if (!bag) return;
   if (!confirm(`Remove "${bag.name}" from your dashboard?`)) return;
@@ -44,7 +132,6 @@ function deleteBag(e, bagId) {
   bags = bags.filter(b => b.id !== bagId);
   saveBags();
 
-  // If deleted bag was active, clear monitor
   if (activeBagId === bagId) {
     activeBagId = null;
     if (liveInterval) { clearInterval(liveInterval); liveInterval = null; }
@@ -55,7 +142,6 @@ function deleteBag(e, bagId) {
         <div class="empty-desc">Tap any bag card above to view real-time temperature readings and history charts.</div>
       </div>`;
   }
-
   renderDevices();
 }
 
@@ -68,93 +154,216 @@ function safeExportBaseName(bag) {
   return (bag.name || 'readings').replace(/[^a-z0-9-_]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 48) || 'readings';
 }
 
-function getReadingsOrAlert(bagId) {
-  const bag = bags.find(b => b.id === bagId);
-  if (!bag) return null;
-  const history = bag.history || [];
-  if (!history.length) {
-    alert('No readings to download yet. Wait for data to load or refresh.');
-    return null;
-  }
-  return { bag, history };
-}
-
 function closeExportDd(el) {
   const dd = el && el.closest && el.closest('details.export-dd');
   if (dd) dd.open = false;
 }
 
-/** Export readings as PDF (table). */
-function downloadReadingsPdf(bagId) {
-  const data = getReadingsOrAlert(bagId);
-  if (!data) return;
-  const { bag, history } = data;
+// ───────────────────────────────────────────────
+// DATE-RANGE EXPORT MODAL
+// ───────────────────────────────────────────────
 
-  if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
-    alert('PDF library not loaded. Please refresh the page.');
-    return;
+let _exportBagId = null;
+
+function openDateRangeModal(bagId) {
+  _exportBagId = bagId;
+  closeExportDd(document.querySelector('.export-dd'));
+  const now  = new Date();
+  const week = new Date(now - 7 * 24 * 60 * 60 * 1000);
+  const fmt  = d => d.toISOString().slice(0, 16);
+  document.getElementById('drFrom').value = fmt(week);
+  document.getElementById('drTo').value   = fmt(now);
+  document.getElementById('drError').style.display = 'none';
+  const bag = bags.find(b => b.id === bagId);
+  if (bag && bag.history && bag.history.length) {
+    const first = new Date(bag.history[0].timestamp);
+    document.getElementById('drMinNote').textContent = `Earliest stored: ${first.toLocaleString()}`;
+  } else {
+    document.getElementById('drMinNote').textContent = '';
   }
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-
-  doc.setFontSize(14);
-  doc.setTextColor(40, 40, 45);
-  doc.text('infinosTech — Temperature readings', 14, 14);
-  doc.setFontSize(10);
-  doc.text(`Bag: ${bag.name}`, 14, 21);
-  doc.text(`Code: ${bag.code} · Channel ${CHANNEL_ID}`, 14, 26);
-
-  const body = history.map(h => {
-    const d = h.timestamp instanceof Date ? h.timestamp : new Date(h.timestamp);
-    return [
-      d.toLocaleString(),
-      h.hotTemp != null ? h.hotTemp.toFixed(2) : '—',
-      h.coldTemp != null ? h.coldTemp.toFixed(2) : '—',
-    ];
-  });
-
-  doc.autoTable({
-    startY: 30,
-    head: [['Timestamp', 'Hot Zone (°C)', 'Cold Zone (°C)']],
-    body,
-    styles: { fontSize: 8, cellPadding: 2 },
-    headStyles: { fillColor: [255, 107, 53], textColor: 255 },
-    alternateRowStyles: { fillColor: [245, 245, 248] },
-  });
-
-  const base = safeExportBaseName(bag);
-  doc.save(`infinosTech_readings_${base}_${Date.now()}.pdf`);
+  document.getElementById('dateRangeModal').classList.add('open');
 }
 
-/** Export readings as Excel (.xlsx). */
-function downloadReadingsExcel(bagId) {
-  const data = getReadingsOrAlert(bagId);
-  if (!data) return;
-  const { bag, history } = data;
+function closeDateRangeModal() {
+  document.getElementById('dateRangeModal').classList.remove('open');
+  _exportBagId = null;
+}
 
-  if (typeof XLSX === 'undefined') {
-    alert('Excel library not loaded. Please refresh the page.');
-    return;
+function drPreset(days) {
+  const now  = new Date();
+  const from = new Date(now - days * 24 * 60 * 60 * 1000);
+  const fmt  = d => d.toISOString().slice(0, 16);
+  document.getElementById('drFrom').value = fmt(from);
+  document.getElementById('drTo').value   = fmt(now);
+}
+
+function drPresetAll() {
+  const bag = bags.find(b => b.id === _exportBagId);
+  const fmt = d => d.toISOString().slice(0, 16);
+  if (bag && bag.history && bag.history.length) {
+    document.getElementById('drFrom').value = fmt(new Date(bag.history[0].timestamp));
+    document.getElementById('drTo').value   = fmt(new Date(bag.history[bag.history.length - 1].timestamp));
+  } else {
+    document.getElementById('drFrom').value = '2020-01-01T00:00';
+    document.getElementById('drTo').value   = new Date().toISOString().slice(0, 16);
   }
+}
 
+async function drDownload(format) {
+  const fromVal = document.getElementById('drFrom').value;
+  const toVal   = document.getElementById('drTo').value;
+  const errEl   = document.getElementById('drError');
+  if (!fromVal || !toVal) {
+    errEl.textContent = 'Please select both start and end date/time.';
+    errEl.style.display = 'block'; return;
+  }
+  const fromDate = new Date(fromVal);
+  const toDate   = new Date(toVal);
+  if (fromDate >= toDate) {
+    errEl.textContent = 'Start must be before end date.';
+    errEl.style.display = 'block'; return;
+  }
+  errEl.style.display = 'none';
+  const bag = bags.find(b => b.id === _exportBagId);
+  if (!bag) return;
+  closeDateRangeModal();
+  if (format === 'pdf') {
+    if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
+      alert('PDF library not loaded. Please refresh the page.'); return;
+    }
+    await downloadReadingsPdf(bag, fromDate, toDate);
+  } else {
+    if (typeof XLSX === 'undefined') {
+      alert('Excel library not loaded. Please refresh the page.'); return;
+    }
+    await downloadReadingsExcel(bag, fromDate, toDate);
+  }
+}
+
+// ───────────────────────────────────────────────
+// DOWNLOAD
+// ───────────────────────────────────────────────
+
+async function downloadReadingsPdf(bag, fromDate, toDate) {
+  const history = await fetchRangeForExport(bag, fromDate, toDate);
+  if (!history) return;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  doc.setFontSize(14); doc.setTextColor(40,40,45);
+  doc.text('infinosTech - Temperature Readings', 14, 14);
+  doc.setFontSize(9);
+  doc.text(`Bag: ${bag.name}   |   Code: ${bag.code}   |   Channel: ${CHANNEL_ID}`, 14, 21);
+  doc.text(`From: ${fromDate.toLocaleString()}  To: ${toDate.toLocaleString()}`, 14, 26);
+  doc.text(`Exported: ${new Date().toLocaleString()}   |   Total readings: ${history.length}`, 14, 31);
+  const body = history.map(h => {
+    const d = h.timestamp instanceof Date ? h.timestamp : new Date(h.timestamp);
+    return [ h.entry_id ?? '', d.toLocaleString(),
+      h.hotTemp  != null ? h.hotTemp.toFixed(2)  : '-',
+      h.coldTemp != null ? h.coldTemp.toFixed(2) : '-' ];
+  });
+  doc.autoTable({
+    startY: 35,
+    head: [['Entry #', 'Timestamp', 'Hot Zone (C)', 'Cold Zone (C)']],
+    body,
+    styles: { fontSize: 7.5, cellPadding: 1.8 },
+    headStyles: { fillColor: [255,107,53], textColor: 255, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [245,245,248] },
+    columnStyles: { 0: { cellWidth: 18 }, 1: { cellWidth: 52 } },
+  });
+  const tag = `${fromDate.toISOString().slice(0,10)}_to_${toDate.toISOString().slice(0,10)}`;
+  doc.save(`infinosTech_${safeExportBaseName(bag)}_${tag}.pdf`);
+}
+
+async function downloadReadingsExcel(bag, fromDate, toDate) {
+  const history = await fetchRangeForExport(bag, fromDate, toDate);
+  if (!history) return;
+  const tag = `${fromDate.toISOString().slice(0,10)}_to_${toDate.toISOString().slice(0,10)}`;
   const aoa = [
-    ['Timestamp', 'Hot Zone (°C)', 'Cold Zone (°C)'],
+    ['Entry #','Timestamp (ISO)','Timestamp (Local)','Hot Zone (C)','Cold Zone (C)'],
     ...history.map(h => {
       const d = h.timestamp instanceof Date ? h.timestamp : new Date(h.timestamp);
-      return [
-        d.toISOString(),
-        h.hotTemp != null ? Number(h.hotTemp) : '',
-        h.coldTemp != null ? Number(h.coldTemp) : '',
-      ];
+      return [ h.entry_id??'', d.toISOString(), d.toLocaleString(),
+        h.hotTemp !=null ? Number(h.hotTemp.toFixed(4)) : '',
+        h.coldTemp!=null ? Number(h.coldTemp.toFixed(4)): '' ];
     }),
   ];
-
   const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:10},{wch:26},{wch:22},{wch:16},{wch:16}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Readings');
+  const summary = [
+    ['Bag Name', bag.name], ['Device Code', bag.code], ['Channel', CHANNEL_ID],
+    ['From', fromDate.toLocaleString()], ['To', toDate.toLocaleString()],
+    ['Total Readings', history.length], ['Export Date', new Date().toLocaleString()],
+  ];
+  const ws2 = XLSX.utils.aoa_to_sheet(summary);
+  ws2['!cols'] = [{wch:18},{wch:30}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Info');
+  XLSX.writeFile(wb, `infinosTech_${safeExportBaseName(bag)}_${tag}.xlsx`);
+}
 
-  const base = safeExportBaseName(bag);
-  XLSX.writeFile(wb, `infinosTech_readings_${base}_${Date.now()}.xlsx`);
+async function fetchRangeForExport(bag, fromDate, toDate) {
+  const overlay = document.createElement('div');
+  overlay.id = 'fetchOverlay';
+  overlay.innerHTML = `
+    <div class="fetch-modal">
+      <div class="fetch-icon">&#128225;</div>
+      <div class="fetch-title">Fetching Readings</div>
+      <div class="fetch-sub" id="fetchSub">Querying ThingSpeak...</div>
+      <div class="fetch-bar-wrap"><div class="fetch-bar" id="fetchBar" style="width:5%"></div></div>
+      <div class="fetch-count" id="fetchCount">Connecting...</div>
+    </div>`;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add('open'));
+  try {
+    const fmtTS = d => d.toISOString().replace('T',' ').replace(/\.\d+Z$/,' UTC');
+    const startStr = fmtTS(fromDate);
+    const PAGE = 8000;
+    let allFeeds = [], pageEnd = fmtTS(toDate), barPct = 5;
+    while (true) {
+      const url = `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json` +
+        `?api_key=${API_KEY}&results=${PAGE}` +
+        `&start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(pageEnd)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`ThingSpeak error: ${res.status}`);
+      const data = await res.json();
+      const feeds = data.feeds || [];
+      if (!feeds.length) break;
+      allFeeds = feeds.concat(allFeeds);
+      barPct = Math.min(barPct + 20, 90);
+      const barEl = document.getElementById('fetchBar');
+      const subEl = document.getElementById('fetchSub');
+      const cntEl = document.getElementById('fetchCount');
+      if (barEl) barEl.style.width = barPct + '%';
+      if (subEl) subEl.textContent = `Fetched ${allFeeds.length.toLocaleString()} readings...`;
+      if (cntEl) cntEl.textContent = `${new Date(feeds[0].created_at).toLocaleDateString()} to ${new Date(feeds[feeds.length-1].created_at).toLocaleDateString()}`;
+      if (feeds.length < PAGE) break;
+      const earliest = new Date(feeds[0].created_at);
+      earliest.setSeconds(earliest.getSeconds() - 1);
+      pageEnd = fmtTS(earliest);
+      await new Promise(r => setTimeout(r, 1100));
+    }
+    const seen = new Set(), unique = [];
+    for (const f of allFeeds) { if (!seen.has(f.entry_id)) { seen.add(f.entry_id); unique.push(f); } }
+    unique.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+    const history = parseFeeds(unique);
+    bag.history = mergeHistory(bag.history || [], history);
+    saveBags(); renderDevices();
+    if (activeBagId === bag.id) renderMonitor(bag);
+    const barEl = document.getElementById('fetchBar');
+    if (barEl) barEl.style.width = '100%';
+    if (!history.length) {
+      alert(`No readings found between ${fromDate.toLocaleString()} and ${toDate.toLocaleString()}`);
+      return null;
+    }
+    return history;
+  } catch (err) {
+    alert('Failed to fetch readings: ' + err.message);
+    return null;
+  } finally {
+    const el = document.getElementById('fetchOverlay');
+    if (el) { el.classList.remove('open'); setTimeout(() => el.remove(), 300); }
+  }
 }
 
 // ───────────────────────────────────────────────
@@ -273,8 +482,9 @@ function renderMonitor(bag) {
             <svg class="export-dd-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
           </summary>
           <div class="export-dd-menu" role="menu">
-            <button type="button" class="export-dd-item" role="menuitem" onclick="downloadReadingsPdf('${bag.id}'); closeExportDd(this);">PDF</button>
-            <button type="button" class="export-dd-item" role="menuitem" onclick="downloadReadingsExcel('${bag.id}'); closeExportDd(this);">Excel</button>
+            <button type="button" class="export-dd-item" role="menuitem" onclick="openDateRangeModal('${bag.id}'); closeExportDd(this);">
+              &#128197; Select Date Range
+            </button>
           </div>
         </details>
         <div class="live-badge">LIVE</div>
@@ -283,7 +493,8 @@ function renderMonitor(bag) {
     <div class="mp-body">
       <div class="timestamp-bar">
         🕐 Updated: <strong>${now.toLocaleTimeString()}</strong>
-        &nbsp;·&nbsp; ${history.length} readings loaded
+        &nbsp;·&nbsp; <strong>${history.length.toLocaleString()}</strong> readings stored · auto-refresh 15s
+      </div>
       </div>
 
       <div class="readings-row">
@@ -384,7 +595,7 @@ async function updateBagData(bagId) {
     const bag = bags.find(b => b.id === bagId);
     if (!bag) return;
 
-    bag.history = parsed;
+    bag.history = mergeHistory(bag.history || [], parsed);
     bag.lastSeen = new Date().toISOString();
     saveBags();
 
@@ -413,8 +624,9 @@ async function refreshAll() {
 
   for (const bag of bags) {
     try {
-      const data = await fetchThingSpeak(20);
-      bag.history = parseFeeds(data.feeds);
+      const data = await fetchThingSpeak(100);
+      const parsed = parseFeeds(data.feeds);
+      bag.history = mergeHistory(bag.history || [], parsed);
       bag.lastSeen = new Date().toISOString();
     } catch(e) {}
   }
@@ -595,7 +807,7 @@ async function init() {
   renderDevices();
   if (bags.length > 0) {
     for (const bag of bags) {
-      try { const data = await fetchThingSpeak(20); bag.history = parseFeeds(data.feeds); } catch(e) {}
+      try { const data = await fetchThingSpeak(100); const p = parseFeeds(data.feeds); bag.history = mergeHistory(bag.history||[], p); } catch(e) {}
     }
     saveBags(); renderDevices(); selectBag(bags[0].id);
   }
