@@ -64,6 +64,99 @@ function getLatestReading(bag) {
   return bag.history[bag.history.length - 1];
 }
 
+function safeExportBaseName(bag) {
+  return (bag.name || 'readings').replace(/[^a-z0-9-_]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 48) || 'readings';
+}
+
+function getReadingsOrAlert(bagId) {
+  const bag = bags.find(b => b.id === bagId);
+  if (!bag) return null;
+  const history = bag.history || [];
+  if (!history.length) {
+    alert('No readings to download yet. Wait for data to load or refresh.');
+    return null;
+  }
+  return { bag, history };
+}
+
+function closeExportDd(el) {
+  const dd = el && el.closest && el.closest('details.export-dd');
+  if (dd) dd.open = false;
+}
+
+/** Export readings as PDF (table). */
+function downloadReadingsPdf(bagId) {
+  const data = getReadingsOrAlert(bagId);
+  if (!data) return;
+  const { bag, history } = data;
+
+  if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
+    alert('PDF library not loaded. Please refresh the page.');
+    return;
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+  doc.setFontSize(14);
+  doc.setTextColor(40, 40, 45);
+  doc.text('infinosTech — Temperature readings', 14, 14);
+  doc.setFontSize(10);
+  doc.text(`Bag: ${bag.name}`, 14, 21);
+  doc.text(`Code: ${bag.code} · Channel ${CHANNEL_ID}`, 14, 26);
+
+  const body = history.map(h => {
+    const d = h.timestamp instanceof Date ? h.timestamp : new Date(h.timestamp);
+    return [
+      d.toLocaleString(),
+      h.hotTemp != null ? h.hotTemp.toFixed(2) : '—',
+      h.coldTemp != null ? h.coldTemp.toFixed(2) : '—',
+    ];
+  });
+
+  doc.autoTable({
+    startY: 30,
+    head: [['Timestamp', 'Hot Zone (°C)', 'Cold Zone (°C)']],
+    body,
+    styles: { fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [255, 107, 53], textColor: 255 },
+    alternateRowStyles: { fillColor: [245, 245, 248] },
+  });
+
+  const base = safeExportBaseName(bag);
+  doc.save(`infinosTech_readings_${base}_${Date.now()}.pdf`);
+}
+
+/** Export readings as Excel (.xlsx). */
+function downloadReadingsExcel(bagId) {
+  const data = getReadingsOrAlert(bagId);
+  if (!data) return;
+  const { bag, history } = data;
+
+  if (typeof XLSX === 'undefined') {
+    alert('Excel library not loaded. Please refresh the page.');
+    return;
+  }
+
+  const aoa = [
+    ['Timestamp', 'Hot Zone (°C)', 'Cold Zone (°C)'],
+    ...history.map(h => {
+      const d = h.timestamp instanceof Date ? h.timestamp : new Date(h.timestamp);
+      return [
+        d.toISOString(),
+        h.hotTemp != null ? Number(h.hotTemp) : '',
+        h.coldTemp != null ? Number(h.coldTemp) : '',
+      ];
+    }),
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Readings');
+
+  const base = safeExportBaseName(bag);
+  XLSX.writeFile(wb, `infinosTech_readings_${base}_${Date.now()}.xlsx`);
+}
+
 // ───────────────────────────────────────────────
 // RENDER DEVICES GRID
 // ───────────────────────────────────────────────
@@ -170,7 +263,22 @@ function renderMonitor(bag) {
         <div class="mp-title">🔴 Live: ${bag.name}</div>
         <div class="mp-meta">Code: ${bag.code} · Channel ${CHANNEL_ID} · Auto-refresh every 15s</div>
       </div>
-      <div class="live-badge">LIVE</div>
+      <div class="mp-actions">
+        <details class="export-dd">
+          <summary class="btn-export" title="Download readings">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Download
+            <svg class="export-dd-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="export-dd-menu" role="menu">
+            <button type="button" class="export-dd-item" role="menuitem" onclick="downloadReadingsPdf('${bag.id}'); closeExportDd(this);">PDF</button>
+            <button type="button" class="export-dd-item" role="menuitem" onclick="downloadReadingsExcel('${bag.id}'); closeExportDd(this);">Excel</button>
+          </div>
+        </details>
+        <div class="live-badge">LIVE</div>
+      </div>
     </div>
     <div class="mp-body">
       <div class="timestamp-bar">
