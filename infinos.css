@@ -524,6 +524,18 @@ main {
   border: 1px solid var(--border);
   border-radius: var(--radius); padding: 14px 12px 12px;
 }
+.chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.chart-head .chart-title {
+  margin-bottom: 0;
+  flex: 1;
+  min-width: 0;
+}
 .chart-title {
   font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.72rem;
   margin-bottom: 10px; display: flex; align-items: center; gap: 7px;
@@ -531,6 +543,35 @@ main {
 }
 .chart-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .chart-wrapper { height: 220px; position: relative; }
+.chart-wrapper--zoom canvas {
+  touch-action: none;
+}
+.chart-reset-zoom {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.chart-reset-zoom:hover {
+  color: var(--orange);
+  border-color: var(--orange);
+  background: var(--orange-dim);
+}
+.chart-zoom-hint {
+  font-size: 0.62rem;
+  color: var(--muted);
+  line-height: 1.4;
+  margin: 0 0 8px 0;
+  opacity: 0.92;
+}
 
 /* timestamp */
 .timestamp-bar {
@@ -585,6 +626,24 @@ main {
   overflow: hidden;
   transform: translateY(16px) scale(.97);
   transition: transform .25s cubic-bezier(.34,1.56,.64,1);
+}
+/* Wider modals (e.g. date range + two datetime inputs side by side) */
+.modal--wide {
+  max-width: min(100%, 540px);
+}
+/* Download Readings: scrollable body, safe area, room for two datetime fields */
+.modal.modal--export {
+  display: flex;
+  flex-direction: column;
+  max-height: min(92vh, 880px);
+}
+.modal--export .modal-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+  min-height: 0;
+  padding-bottom: max(18px, env(safe-area-inset-bottom, 0px));
 }
 .modal-overlay.open .modal { transform: none; }
 
@@ -904,15 +963,19 @@ html.light .timestamp-bar {
    DATE RANGE EXPORT MODAL
 ───────────────────────────── */
 .dr-presets {
-  display: flex; flex-wrap: wrap; gap: 6px;
-  margin-bottom: 18px;
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-bottom: 20px;
 }
 .dr-preset-btn {
-  padding: 5px 12px; border-radius: 999px;
+  padding: 6px 12px; border-radius: 999px;
   background: var(--surface2); border: 1px solid var(--border);
   color: var(--muted); font-family: 'DM Sans', sans-serif;
   font-size: 0.72rem; font-weight: 600;
   cursor: pointer; transition: all .15s;
+  flex: 1 1 auto;
+  min-width: calc(50% - 4px);
+  text-align: center;
+  box-sizing: border-box;
 }
 .dr-preset-btn:hover {
   background: var(--orange-dim); border-color: var(--orange);
@@ -920,14 +983,22 @@ html.light .timestamp-bar {
 }
 
 .dr-row {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-  margin-bottom: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 14px;
+  margin-bottom: 12px;
 }
-.dr-field {}
+.dr-field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
 
 .dr-note {
   font-size: 0.68rem; color: var(--muted);
-  margin-bottom: 16px; min-height: 16px;
+  margin-bottom: 18px;
+  min-height: 16px;
+  line-height: 1.45;
 }
 
 .dr-format-label {
@@ -937,12 +1008,15 @@ html.light .timestamp-bar {
 }
 
 .dr-format-row {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .dr-format-btn {
   display: flex; align-items: center; justify-content: center; gap: 7px;
-  padding: 11px 10px; border-radius: 10px;
+  padding: 11px 12px; border-radius: 10px;
+  min-width: 0;
   background: linear-gradient(135deg, var(--orange), #e83800);
   border: none; color: #fff;
   font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 0.8rem;
@@ -960,12 +1034,43 @@ html.light .timestamp-bar {
 /* native datetime-local tweak for dark mode */
 input[type="datetime-local"] {
   color-scheme: dark;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 html.light input[type="datetime-local"] {
   color-scheme: light;
 }
 
+/* Export modal: datetime fields must shrink inside grid (avoid horizontal clip) */
+.modal--export .dr-row .field-input[type="datetime-local"] {
+  font-size: 0.8rem;
+}
+
+@media (max-width: 640px) {
+  .dr-row {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .dr-format-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .dr-preset-btn {
+    min-width: calc(50% - 4px);
+  }
+}
+
 @media (max-width: 480px) {
-  .dr-row { grid-template-columns: 1fr; }
-  .dr-format-row { grid-template-columns: 1fr; }
+  .dr-preset-btn {
+    min-width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
+  .modal--export .dr-row .field-input[type="datetime-local"] {
+    font-size: 0.75rem;
+    padding: 8px 10px;
+  }
 }

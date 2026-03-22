@@ -1,4 +1,11 @@
 // ───────────────────────────────────────────────
+// CHART.JS — zoom / pan (chartjs-plugin-zoom + Hammer.js)
+// ───────────────────────────────────────────────
+if (typeof Chart !== 'undefined' && typeof ChartZoom !== 'undefined') {
+  Chart.register(ChartZoom);
+}
+
+// ───────────────────────────────────────────────
 // STATE
 // ───────────────────────────────────────────────
 let bags = JSON.parse(localStorage.getItem('infinos_bags') || '[]');
@@ -512,18 +519,30 @@ function renderMonitor(bag) {
 
       <div class="charts-grid">
         <div class="chart-card">
-          <div class="chart-title">
-            <span class="chart-dot" style="background:var(--hot)"></span>
-            Hot Zone History (°C)
+          <div class="chart-head">
+            <div class="chart-title">
+              <span class="chart-dot" style="background:var(--hot)"></span>
+              Hot Zone History (°C)
+            </div>
+            <button type="button" class="chart-reset-zoom" onclick="resetChartZoom('chartHot')" title="Reset zoom &amp; pan" aria-label="Reset hot zone chart zoom">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
           </div>
-          <div class="chart-wrapper"><canvas id="chartHot"></canvas></div>
+          <p class="chart-zoom-hint">Scroll or pinch to zoom · drag to pan · double-click to reset</p>
+          <div class="chart-wrapper chart-wrapper--zoom"><canvas id="chartHot"></canvas></div>
         </div>
         <div class="chart-card">
-          <div class="chart-title">
-            <span class="chart-dot" style="background:var(--cold)"></span>
-            Cold Zone History (°C)
+          <div class="chart-head">
+            <div class="chart-title">
+              <span class="chart-dot" style="background:var(--cold)"></span>
+              Cold Zone History (°C)
+            </div>
+            <button type="button" class="chart-reset-zoom" onclick="resetChartZoom('chartCold')" title="Reset zoom &amp; pan" aria-label="Reset cold zone chart zoom">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
           </div>
-          <div class="chart-wrapper"><canvas id="chartCold"></canvas></div>
+          <p class="chart-zoom-hint">Scroll or pinch to zoom · drag to pan · double-click to reset</p>
+          <div class="chart-wrapper chart-wrapper--zoom"><canvas id="chartCold"></canvas></div>
         </div>
       </div>
     </div>
@@ -541,16 +560,43 @@ function renderMonitor(bag) {
     const textColor = style.getPropertyValue('--text').trim() || '#F0F1F5';
     const mutedColor = style.getPropertyValue('--muted').trim() || '#6b7080';
     const surfaceColor = style.getPropertyValue('--surface2').trim() || '#14171f';
-    return {
-      responsive: true, maintainAspectRatio: false,
-      animation: { duration: 500, easing: 'easeOutQuart' },
-      plugins: { legend: { display: false }, tooltip: {
+
+    const plugins = {
+      legend: { display: false },
+      tooltip: {
         backgroundColor: surfaceColor,
         borderColor: style.getPropertyValue('--border-strong').trim(),
         borderWidth: 1,
         titleColor: textColor, bodyColor: mutedColor, padding: 10,
         callbacks: { label: ctx => ` ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(2) : '—'} ${unit}` }
-      }},
+      }
+    };
+
+    if (typeof ChartZoom !== 'undefined') {
+      plugins.zoom = {
+        limits: {
+          x: { min: 'original', max: 'original' },
+          y: { min: 'original', max: 'original' }
+        },
+        pan: {
+          enabled: true,
+          mode: 'xy',
+          threshold: 6
+        },
+        zoom: {
+          wheel: { enabled: true, speed: 0.11 },
+          pinch: { enabled: true },
+          mode: 'xy',
+          doubleClick: { enabled: true, mode: 'reset' }
+        }
+      };
+    }
+
+    return {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 500, easing: 'easeOutQuart' },
+      interaction: { mode: 'nearest', intersect: false },
+      plugins,
       scales: {
         x: { ticks: { color: tickColor, font:{size:9}, maxRotation:0, maxTicksLimit:5 }, grid: { color: gridColor }, border: { display:false } },
         y: { ticks: { color: tickColor, font:{size:9} }, grid: { color: gridColor }, border: { display:false } }
@@ -616,6 +662,15 @@ function flash(el) {
   el.style.transition = 'opacity .1s';
   el.style.opacity = '0.4';
   setTimeout(() => { el.style.opacity = '1'; }, 200);
+}
+
+/** Reset zoom/pan on a live-monitor chart (canvas id: chartHot | chartCold). */
+function resetChartZoom(canvasId) {
+  const ch = chartInstances[canvasId];
+  if (!ch) return;
+  if (typeof ch.resetZoom === 'function') {
+    try { ch.resetZoom(); } catch (e) { console.warn('resetZoom:', e); }
+  }
 }
 
 async function refreshAll() {
